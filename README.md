@@ -1,6 +1,6 @@
 # SplatterPy  
   
-## *Procedural Gaussian Splattering using Python OpenGL bindings*  
+## *Procedural Gaussian Splattering rendering using Python OpenGL bindings*  
   
 This project is a Python library that uses OpenGL and GLFW to render real-time Gaussian splatters. It's designed to fill a gap in the current market, providing a simple yet effective tool for those interested in the field of real-time graphics, especially in the context of Gaussian splattering rendering, without the complexities of neural network dependencies.  
   
