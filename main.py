@@ -1,3 +1,4 @@
+# main.py
 import glfw
 from OpenGL.GL import *
 import numpy as np
@@ -6,6 +7,10 @@ import ctypes
 from data_gen import generate_points, generate_points_from_model
 from procedural_data_gen import generate_voxel_terrain, Randomizer
 import trimesh
+# Initialize mouse state variables
+lastX, lastY = 1920 / 2, 1080 / 2  # Assuming a 1920x1080 window size
+first_mouse = True  # This will help to check if the mouse has moved for the first time
+yaw, pitch = -90.0, 0.0  # Initialize yaw and pitch
 
 # Vertex Shader: Processes each vertex's position, color, and size; outputs to the geometry shader.
 vertex_shader_source = """
@@ -102,13 +107,17 @@ def perspective(fov, aspect, near, far):
     :returns: A perspective projection matrix.
     :rtype: numpy.ndarray
     """
+
+
     f = 1.0 / np.tan(fov / 2.0)
     return np.array([
-        [f/aspect, 0, 0, 0],
+        [f / aspect, 0, 0, 0],
         [0, f, 0, 0],
-        [0, 0, (far+near)/(near-far), (2*far*near)/(near-far)],
+        [0, 0, (far + near) / (near - far), (2 * far * near) / (near - far)],
         [0, 0, -1, 0]
     ], dtype=np.float32)
+
+
 def look_at(eye, center, up):
     """
     Define a view matrix with an eye point, a reference point indicating the center of the scene, and an UP vector.
@@ -146,7 +155,7 @@ def normalize(v):
     """
     norm = np.linalg.norm(v)
     if norm == 0:
-       return v
+        return v
     return v / norm
 def rotate_y(angle):
     """
@@ -164,6 +173,137 @@ def rotate_y(angle):
         [-s, 0, c, 0],
         [0, 0, 0, 1]
     ], dtype=np.float32)
+
+
+class Camera:
+    def __init__(self, position, target, up_vector, fov, aspect_ratio, near_plane, far_plane):
+        self.position = np.array(position, dtype=np.float32)
+        self.target = np.array(target, dtype=np.float32)
+        self.up_vector = np.array(up_vector, dtype=np.float32)
+        self.fov = fov
+        self.aspect_ratio = aspect_ratio
+        self.near_plane = near_plane
+        self.far_plane = far_plane
+        self.update_view_matrix()
+        self.update_projection_matrix()
+
+    def update_view_matrix(self):
+        f = normalize(self.target - self.position)
+        s = normalize(np.cross(f, self.up_vector))
+        u = np.cross(s, f)
+
+        mat = np.identity(4)
+        mat[0, 0:3] = s
+        mat[1, 0:3] = u
+        mat[2, 0:3] = -f
+        mat[0:3, 3] = -np.dot(mat[0:3, 0:3], self.position)
+        self.view_matrix = mat
+
+    def update_projection_matrix(self):
+        f = 1.0 / np.tan(self.fov / 2.0)
+        self.projection_matrix = np.array([
+            [f / self.aspect_ratio, 0, 0, 0],
+            [0, f, 0, 0],
+            [0, 0, (self.far_plane + self.near_plane) / (self.near_plane - self.far_plane),
+             (2 * self.far_plane * self.near_plane) / (self.near_plane - self.far_plane)],
+            [0, 0, -1, 0]
+        ], dtype=np.float32)
+
+    def move(self, direction, amount):
+        """
+        Move the camera in a direction by a certain amount.
+
+        :param direction: The direction to move the camera (forward, right, or up).
+        :type direction: str
+        :param amount: The amount to move the camera by.
+        :type amount: float
+        """
+        forward_vector = normalize(self.target - self.position)
+        right_vector = normalize(np.cross(forward_vector, self.up_vector))
+
+        if direction == "forward":
+            self.position += forward_vector * amount
+        elif direction == "backward":
+            self.position -= forward_vector * amount
+        elif direction == "right":
+            self.position += right_vector * amount
+        elif direction == "left":
+            self.position -= right_vector * amount
+        elif direction == "up":
+            self.position += self.up_vector * amount
+        elif direction == "down":
+            self.position -= self.up_vector * amount
+
+        # After moving, the target needs to be updated to keep the camera direction consistent
+        self.target = self.position + forward_vector
+
+        self.update_view_matrix()
+
+    def rotate(self, axis, angle):
+        """
+        Rotate the camera around an axis by a certain angle.
+
+        :param axis: The axis to rotate the camera around (yaw or pitch).
+        :type axis: str
+        :param angle: The angle to rotate the camera by, in radians.
+        :type angle: float
+        """
+        if axis == "yaw":
+            rotation_matrix = rotate_y(angle)
+            direction = self.target - self.position
+            rotated_direction = np.dot(direction.reshape(1, -1), rotation_matrix[:3, :3]).reshape(-1)
+            self.target = self.position + rotated_direction
+        elif axis == "pitch":
+            # This requires more complex handling to prevent gimbal lock and ensure proper up vector orientation
+            pass  # Placeholder for pitch implementation
+        self.update_view_matrix()
+# Mouse callback function
+# Mouse callback function
+def mouse_callback(window, xpos, ypos):
+    global lastX, lastY, first_mouse, yaw, pitch
+    if first_mouse:  # Check if the mouse has moved for the first time
+        lastX, lastY = xpos, ypos
+        first_mouse = False
+
+    # Calculate the offset movement between the last and current frame
+    xoffset = xpos - lastX
+    yoffset = lastY - ypos  # Reversed since y-coordinates range from bottom to top
+    lastX, lastY = xpos, ypos
+
+    sensitivity = 0.1  # Change this value to increase/decrease the camera's sensitivity
+    xoffset *= sensitivity
+    yoffset *= sensitivity
+
+    yaw += xoffset
+    pitch += yoffset
+
+    # Constrain the pitch angle to prevent the camera from flipping
+    if pitch > 89.0:
+        pitch = 89.0
+    elif pitch < -89.0:
+        pitch = -89.0
+
+    # Calculate the new front vector based on the updated yaw and pitch
+    front = np.array([
+        np.cos(np.radians(yaw)) * np.cos(np.radians(pitch)),
+        np.sin(np.radians(pitch)),
+        np.sin(np.radians(yaw)) * np.cos(np.radians(pitch))
+    ])
+
+    # Update the camera's direction based on the new front vector
+    camera.target = camera.position + normalize(front)
+    camera.update_view_matrix()
+
+# Mouse button callback function
+def mouse_button_callback(window, button, action, mods):
+    global first_mouse
+    if button == glfw.MOUSE_BUTTON_RIGHT and action == glfw.PRESS:
+        first_mouse = True  # Reset the first_mouse flag
+        glfw.set_input_mode(window, glfw.CURSOR, glfw.CURSOR_DISABLED)
+
+    if button == glfw.MOUSE_BUTTON_RIGHT and action == glfw.RELEASE:
+        glfw.set_input_mode(window, glfw.CURSOR, glfw.CURSOR_NORMAL)
+
 
 # Initialize GLFW
 if not glfw.init():
@@ -186,8 +326,8 @@ def framebuffer_size_callback(window, width, height):
     """
     glViewport(0, 0, width, height)
     aspect_ratio = width / height
-    projection_matrix = perspective(fov, aspect_ratio, near_plane, far_plane)
-    glUniformMatrix4fv(projection_location, 1, GL_TRUE, projection_matrix)
+    camera.update_projection_matrix()
+    glUniformMatrix4fv(projection_location, 1, GL_TRUE, camera.projection_matrix)
     # Update the points data with new window size
     vertices = generate_voxel_terrain(width, length, height_scale, randomizer, octaves, persistence, lacunarity)
     glBindBuffer(GL_ARRAY_BUFFER, VBO)
@@ -195,7 +335,7 @@ def framebuffer_size_callback(window, width, height):
     glBindBuffer(GL_ARRAY_BUFFER, 0)
 
 # Create a window
-window = glfw.create_window(720, 480, "OpenGL Window", None, None)
+window = glfw.create_window(1920, 1080, "OpenGL Window", None, None)
 
 # Check if window was created
 if not window:
@@ -205,12 +345,20 @@ if not window:
 # Set window's position
 glfw.set_window_pos(window, 400, 200)
 
+# Make the context current
+glfw.make_context_current(window)
+
+# Set the mouse callbacks
+glfw.set_cursor_pos_callback(window, mouse_callback)
+glfw.set_mouse_button_callback(window, mouse_button_callback)
+
 # Set the framebuffer size callback
 glfw.set_framebuffer_size_callback(window, framebuffer_size_callback)
 
+# Now, you can set input mode for the cursor
+glfw.set_input_mode(window, glfw.CURSOR, glfw.CURSOR_DISABLED)
 
-# Make the context current
-glfw.make_context_current(window)
+
 
 # Enable Blending
 glEnable(GL_BLEND)
@@ -279,7 +427,6 @@ glDeleteShader(fragment_shader)
 glDeleteShader(geometry_shader)
 
 # Replace this with your array of points
-initial_window_size = (720, 480)
 num_points = 100 # number of points you want to sample
 
 
@@ -291,7 +438,7 @@ randomizer.seed(42)  # Seed for reproducibility
 width = 200  # Width of the terrain
 length = 200  # Length of the terrain
 height_variation = 50.0  # Maximum variation in height
-height_scale = 40.0  # Scale for the height variations
+height_scale = 20.0  # Scale for the height variations
 
 
 octaves = 4         # Number of detail layers
@@ -320,35 +467,61 @@ glEnableVertexAttribArray(2)
 glBindBuffer(GL_ARRAY_BUFFER, 0)
 glBindVertexArray(0)
 # Create the perspective projection matrix
-fov = np.radians(25.0)
+fov = np.radians(100.0)
 aspect_ratio = 720.0 / 480.0
 near_plane = 0.1
 far_plane = 10000.0
-projection_matrix = perspective(fov, aspect_ratio, near_plane, far_plane)
 
-# Create the view matrix
-camera_pos = np.array([0.0, 110.0, 0.0], dtype=np.float32)
-camera_target = np.array([100.0, 0.0, 50.0], dtype=np.float32)
-camera_up = np.array([0.0, 1.0, 0.0], dtype=np.float32)
-view_matrix = look_at(camera_pos, camera_target, camera_up)
 
-# Create a model matrix
-model_matrix = np.identity(4, dtype=np.float32)
+# Create the camera object
+camera = Camera(position=[0.0, 10.0, 0.0], target=[0.0, 0.0, 00.0], up_vector=[0.0, 1.0, 0.0],
+                fov=np.radians(100.0), aspect_ratio=720.0 / 480.0, near_plane=0.1, far_plane=10000.0)
 
 # Get the uniform locations
 projection_location = glGetUniformLocation(shader_program, "projection")
 view_location = glGetUniformLocation(shader_program, "view")
 model_location = glGetUniformLocation(shader_program, "model")
 
+# Now it's safe to call update_projection_matrix() because 'camera' has been defined
+camera.update_projection_matrix()
+
+
 # Angle of rotation
 angle = 0.0
+last_frame = glfw.get_time()
+
 
 # Render loop
 while not glfw.window_should_close(window):
+    # Calculate delta time
+    current_frame = glfw.get_time()
+    delta_time = current_frame - last_frame
+    last_frame = current_frame
+
+    camera_speed = 5.0 * delta_time
+
     # Input
     if glfw.get_key(window, glfw.KEY_ESCAPE) == glfw.PRESS:
         glfw.set_window_should_close(window, True)
 
+    # Camera movement
+    if glfw.get_key(window, glfw.KEY_W) == glfw.PRESS:
+        camera.move("forward", camera_speed)
+    if glfw.get_key(window, glfw.KEY_S) == glfw.PRESS:
+        camera.move("forward", -camera_speed)
+    if glfw.get_key(window, glfw.KEY_A) == glfw.PRESS:
+        camera.move("right", -camera_speed)
+    if glfw.get_key(window, glfw.KEY_D) == glfw.PRESS:
+        camera.move("right", camera_speed)
+    if glfw.get_key(window, glfw.KEY_SPACE) == glfw.PRESS:
+        camera.move("up", camera_speed)
+    if glfw.get_key(window, glfw.KEY_LEFT_CONTROL) == glfw.PRESS:
+        camera.move("up", -camera_speed)
+
+    # Update the camera's aspect ratio and recalculate matrices
+    camera.aspect_ratio = glfw.get_framebuffer_size(window)[0] / glfw.get_framebuffer_size(window)[1]
+    camera.update_view_matrix()
+    camera.update_projection_matrix()
     # Update the rotation angle
     angle += 0.0  # This will rotate more slowly
 
@@ -356,10 +529,21 @@ while not glfw.window_should_close(window):
     # Set clear color to transparent
     glClearColor(0.0, 0.0, 0.0, 0.0)
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
+
+    # Update the camera's aspect ratio and recalculate matrices
+    camera.aspect_ratio = glfw.get_framebuffer_size(window)[0] / glfw.get_framebuffer_size(window)[1]
+    camera.update_view_matrix()
+    camera.update_projection_matrix()
+    # Pass the matrices to the shader
+    # Right before setting the uniform:
+    glUseProgram(shader_program)  # Make sure you're using the correct shader program
+
+    # And when calling glUniformMatrix4fv:
+    glUniformMatrix4fv(projection_location, 1, GL_FALSE, camera.projection_matrix)
+    glUniformMatrix4fv(view_location, 1, GL_TRUE, camera.view_matrix)
     # Activate shader program
 
     # Inside your render loop
-    glUseProgram(shader_program)
     glUniform1f(glGetUniformLocation(shader_program, "size"), 0.05)
     glUniform1f(glGetUniformLocation(shader_program, "sigma"), 0.2)
     glUniform3f(glGetUniformLocation(shader_program, "center"), 0.0, 0.0, 0.0)
@@ -369,8 +553,8 @@ while not glfw.window_should_close(window):
     model_matrix = rotate_y(angle)
 
     # Pass the matrices to the shader
-    glUniformMatrix4fv(projection_location, 1, GL_TRUE, projection_matrix)
-    glUniformMatrix4fv(view_location, 1, GL_TRUE, view_matrix)
+    glUniformMatrix4fv(projection_location, 1, GL_TRUE, camera.projection_matrix)
+    glUniformMatrix4fv(view_location, 1, GL_TRUE, camera.view_matrix)
     glUniformMatrix4fv(model_location, 1, GL_TRUE, model_matrix)
 
     # Draw the points

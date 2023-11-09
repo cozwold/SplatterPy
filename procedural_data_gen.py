@@ -68,19 +68,26 @@ def perlin_octaves(x, y, z, octaves, persistence, lacunarity):
     return total / max_value
 
 def generate_voxel_terrain(width, length, height_scale, randomizer, octaves, persistence, lacunarity):
-    num_points = width * length
+    depth = 2
+    num_points = width * length * depth
     points = np.zeros((num_points, 7), dtype=np.float32)  # [x, y, z, r, g, b, size]
 
     index = 0
     for x in range(width):
         for z in range(length):
-            y = height_scale * perlin_octaves(x * 0.1, 0, z * 0.1, octaves, persistence, lacunarity)
-            points[index, :3] = [x, y, z]
-            points[index, 3:6] = randomizer.rand(3)
-            points[index, 6] = randomizer.uniform(1.0, 1.5)
-            index += 1
+            # Get the surface height for this x, z coordinate
+            surface_y = height_scale * perlin_octaves(x * 0.1, 0, z * 0.1, octaves, persistence, lacunarity)
+            for y in range(int(surface_y), int(surface_y) - depth, -1):  # Extend from the surface down to 'depth'
+                # Here we could use Perlin noise again for variation in the volume
+                # or simply fill the volume under the terrain surface
+                points[index, :3] = [x, y, z]
+                # Assign color and size based on your criteria, for now, it's random
+                points[index, 3:6] = randomizer.rand(3)
+                points[index, 6] = randomizer.uniform(1.0, 1.5)
+                index += 1
 
     return points
+
 
 
 
