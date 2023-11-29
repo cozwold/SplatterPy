@@ -3,10 +3,11 @@ import glfw
 from OpenGL.GL import *
 import numpy as np
 import ctypes
-
+from camera import Camera
 from data_gen import generate_points, generate_points_from_model
 from procedural_data_gen import generate_voxel_terrain, Randomizer
 import trimesh
+from utils import rotate_y, check_gl_error, normalize
 # Initialize mouse state variables
 lastX, lastY = 1920 / 2, 1080 / 2  # Assuming a 1920x1080 window size
 first_mouse = True  # This will help to check if the mouse has moved for the first time
@@ -78,7 +79,7 @@ uniform float amplitude;  // Declare the amplitude uniform variable
 
 void main()
 {
-    vec2 coord = TexCoords * 2.0 - 1.0;  // Normalize to [-1, 1]
+    vec2 coord = TexCoords - vec2(0.5, 0.5);  // Adjust TexCoords
     float dist_sq = dot(coord, coord);  // Distance squared from center
     vec3 center = geoColor;  // Use the color of the point as the center color
     float gaussian = amplitude * exp(-dist_sq / (2.0 * 0.2 * 0.2));  // Simplified Gaussian equation
@@ -88,175 +89,9 @@ void main()
 
 """
 
-def check_gl_error():
-    error = glGetError()
-    if error != GL_NO_ERROR:
-        print(f'OpenGL error: {error}')
-def perspective(fov, aspect, near, far):
-    """
-    Create a perspective projection matrix based on the field of view, aspect ratio, and near/far planes.
-
-    :param fov: Field of view angle in the y direction, in radians.
-    :type fov: float
-    :param aspect: Aspect ratio, defined as view space width divided by height.
-    :type aspect: float
-    :param near: Distance from the viewer to the near clipping plane (always positive).
-    :type near: float
-    :param far: Distance from the viewer to the far clipping plane (always positive).
-    :type far: float
-    :returns: A perspective projection matrix.
-    :rtype: numpy.ndarray
-    """
 
 
-    f = 1.0 / np.tan(fov / 2.0)
-    return np.array([
-        [f / aspect, 0, 0, 0],
-        [0, f, 0, 0],
-        [0, 0, (far + near) / (near - far), (2 * far * near) / (near - far)],
-        [0, 0, -1, 0]
-    ], dtype=np.float32)
 
-
-def look_at(eye, center, up):
-    """
-    Define a view matrix with an eye point, a reference point indicating the center of the scene, and an UP vector.
-
-    :param eye: Position of the camera, in world space.
-    :type eye: numpy.ndarray
-    :param center: Position where the camera is looking at, in world space.
-    :type center: numpy.ndarray
-    :param up: Up vector, in world space (typically, this is the y-axis).
-    :type up: numpy.ndarray
-    :returns: A viewing matrix that transforms world coordinates to the camera's coordinate space.
-    :rtype: numpy.ndarray
-    """
-    f = normalize(center - eye)
-    s = normalize(np.cross(f, up))
-    u = np.cross(s, f)
-
-    mat = np.identity(4)
-    mat[0, 0:3] = s
-    mat[1, 0:3] = u
-    mat[2, 0:3] = -f
-    mat[0:3, 3] = -np.dot(mat[0:3, 0:3], eye)
-    return mat
-def normalize(v):
-    """
-    Normalize a vector.
-
-    This function returns the unit vector of the input vector. If the vector has zero length,
-    the function will return the original vector.
-
-    :param v: The vector to normalize.
-    :type v: numpy.ndarray
-    :returns: The normalized vector.
-    :rtype: numpy.ndarray
-    """
-    norm = np.linalg.norm(v)
-    if norm == 0:
-        return v
-    return v / norm
-def rotate_y(angle):
-    """
-    Create a rotation matrix around the y-axis.
-
-    :param angle: The rotation angle in radians.
-    :type angle: float
-    :returns: A rotation matrix that rotates a vector by `angle` radians around the y-axis.
-    :rtype: numpy.ndarray
-    """
-    c, s = np.cos(angle), np.sin(angle)
-    return np.array([
-        [c, 0, s, 0],
-        [0, 1, 0, 0],
-        [-s, 0, c, 0],
-        [0, 0, 0, 1]
-    ], dtype=np.float32)
-
-
-class Camera:
-    def __init__(self, position, target, up_vector, fov, aspect_ratio, near_plane, far_plane):
-        self.position = np.array(position, dtype=np.float32)
-        self.target = np.array(target, dtype=np.float32)
-        self.up_vector = np.array(up_vector, dtype=np.float32)
-        self.fov = fov
-        self.aspect_ratio = aspect_ratio
-        self.near_plane = near_plane
-        self.far_plane = far_plane
-        self.update_view_matrix()
-        self.update_projection_matrix()
-
-    def update_view_matrix(self):
-        f = normalize(self.target - self.position)
-        s = normalize(np.cross(f, self.up_vector))
-        u = np.cross(s, f)
-
-        mat = np.identity(4)
-        mat[0, 0:3] = s
-        mat[1, 0:3] = u
-        mat[2, 0:3] = -f
-        mat[0:3, 3] = -np.dot(mat[0:3, 0:3], self.position)
-        self.view_matrix = mat
-
-    def update_projection_matrix(self):
-        f = 1.0 / np.tan(self.fov / 2.0)
-        self.projection_matrix = np.array([
-            [f / self.aspect_ratio, 0, 0, 0],
-            [0, f, 0, 0],
-            [0, 0, (self.far_plane + self.near_plane) / (self.near_plane - self.far_plane),
-             (2 * self.far_plane * self.near_plane) / (self.near_plane - self.far_plane)],
-            [0, 0, -1, 0]
-        ], dtype=np.float32)
-
-    def move(self, direction, amount):
-        """
-        Move the camera in a direction by a certain amount.
-
-        :param direction: The direction to move the camera (forward, right, or up).
-        :type direction: str
-        :param amount: The amount to move the camera by.
-        :type amount: float
-        """
-        forward_vector = normalize(self.target - self.position)
-        right_vector = normalize(np.cross(forward_vector, self.up_vector))
-
-        if direction == "forward":
-            self.position += forward_vector * amount
-        elif direction == "backward":
-            self.position -= forward_vector * amount
-        elif direction == "right":
-            self.position += right_vector * amount
-        elif direction == "left":
-            self.position -= right_vector * amount
-        elif direction == "up":
-            self.position += self.up_vector * amount
-        elif direction == "down":
-            self.position -= self.up_vector * amount
-
-        # After moving, the target needs to be updated to keep the camera direction consistent
-        self.target = self.position + forward_vector
-
-        self.update_view_matrix()
-
-    def rotate(self, axis, angle):
-        """
-        Rotate the camera around an axis by a certain angle.
-
-        :param axis: The axis to rotate the camera around (yaw or pitch).
-        :type axis: str
-        :param angle: The angle to rotate the camera by, in radians.
-        :type angle: float
-        """
-        if axis == "yaw":
-            rotation_matrix = rotate_y(angle)
-            direction = self.target - self.position
-            rotated_direction = np.dot(direction.reshape(1, -1), rotation_matrix[:3, :3]).reshape(-1)
-            self.target = self.position + rotated_direction
-        elif axis == "pitch":
-            # This requires more complex handling to prevent gimbal lock and ensure proper up vector orientation
-            pass  # Placeholder for pitch implementation
-        self.update_view_matrix()
 # Mouse callback function
 # Mouse callback function
 def mouse_callback(window, xpos, ypos):
@@ -284,15 +119,18 @@ def mouse_callback(window, xpos, ypos):
         pitch = -89.0
 
     # Calculate the new front vector based on the updated yaw and pitch
-    front = np.array([
-        np.cos(np.radians(yaw)) * np.cos(np.radians(pitch)),
-        np.sin(np.radians(pitch)),
-        np.sin(np.radians(yaw)) * np.cos(np.radians(pitch))
-    ])
+    front = np.array(
+        [
+            np.cos(np.radians(yaw)) * np.cos(np.radians(pitch)),
+            np.sin(np.radians(pitch)),
+            np.sin(np.radians(yaw)) * np.cos(np.radians(pitch)),
+        ]
+    )
 
     # Update the camera's direction based on the new front vector
     camera.target = camera.position + normalize(front)
     camera.update_view_matrix()
+
 
 # Mouse button callback function
 def mouse_button_callback(window, button, action, mods):
@@ -329,10 +167,13 @@ def framebuffer_size_callback(window, width, height):
     camera.update_projection_matrix()
     glUniformMatrix4fv(projection_location, 1, GL_TRUE, camera.projection_matrix)
     # Update the points data with new window size
-    vertices = generate_voxel_terrain(width, length, height_scale, randomizer, octaves, persistence, lacunarity)
+    vertices = generate_voxel_terrain(
+        width, length, height_scale, randomizer, octaves, persistence, lacunarity
+    )
     glBindBuffer(GL_ARRAY_BUFFER, VBO)
     glBufferData(GL_ARRAY_BUFFER, vertices.nbytes, vertices, GL_STATIC_DRAW)
     glBindBuffer(GL_ARRAY_BUFFER, 0)
+
 
 # Create a window
 window = glfw.create_window(1920, 1080, "OpenGL Window", None, None)
@@ -359,7 +200,6 @@ glfw.set_framebuffer_size_callback(window, framebuffer_size_callback)
 glfw.set_input_mode(window, glfw.CURSOR, glfw.CURSOR_DISABLED)
 
 
-
 # Enable Blending
 glEnable(GL_BLEND)
 glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)  # Standard alpha blending
@@ -369,7 +209,7 @@ glEnable(GL_DEPTH_TEST)  # Enable depth testing
 glDepthFunc(GL_LESS)  # Accept fragment if it's closer to the camera than the former one
 
 # Disable Depth Testing (if necessary)
-glDisable(GL_DEPTH_TEST)
+#glDisable(GL_DEPTH_TEST)
 # Create the vertex shader
 vertex_shader = glCreateShader(GL_VERTEX_SHADER)
 glShaderSource(vertex_shader, vertex_shader_source)
@@ -427,7 +267,7 @@ glDeleteShader(fragment_shader)
 glDeleteShader(geometry_shader)
 
 # Replace this with your array of points
-num_points = 100 # number of points you want to sample
+num_points = 100  # number of points you want to sample
 
 
 # Initialize randomizer
@@ -441,15 +281,14 @@ height_variation = 50.0  # Maximum variation in height
 height_scale = 20.0  # Scale for the height variations
 
 
-octaves = 4         # Number of detail layers
-persistence = 0.5   # How much detail amplitudes decrease per octave
-lacunarity = 2.0    # How much detail frequency increases per octave
+octaves = 4  # Number of detail layers
+persistence = 0.5  # How much detail amplitudes decrease per octave
+lacunarity = 2.0  # How much detail frequency increases per octave
 
 # Replace 'width', 'length', 'height_scale', and 'randomizer' with your actual values
-vertices = generate_voxel_terrain(width, length, height_scale, randomizer, octaves, persistence, lacunarity)
-
-
-
+vertices = generate_voxel_terrain(
+    width, length, height_scale, randomizer, octaves, persistence, lacunarity
+)
 
 
 VBO = glGenBuffers(1)
@@ -474,8 +313,15 @@ far_plane = 10000.0
 
 
 # Create the camera object
-camera = Camera(position=[0.0, 10.0, 0.0], target=[0.0, 0.0, 00.0], up_vector=[0.0, 1.0, 0.0],
-                fov=np.radians(100.0), aspect_ratio=720.0 / 480.0, near_plane=0.1, far_plane=10000.0)
+camera = Camera(
+    position=[0.0, 10.0, 0.0],
+    target=[0.0, 0.0, 00.0],
+    up_vector=[0.0, 1.0, 0.0],
+    fov=np.radians(100.0),
+    aspect_ratio=720.0 / 480.0,
+    near_plane=0.1,
+    far_plane=10000.0,
+)
 
 # Get the uniform locations
 projection_location = glGetUniformLocation(shader_program, "projection")
@@ -519,7 +365,9 @@ while not glfw.window_should_close(window):
         camera.move("up", -camera_speed)
 
     # Update the camera's aspect ratio and recalculate matrices
-    camera.aspect_ratio = glfw.get_framebuffer_size(window)[0] / glfw.get_framebuffer_size(window)[1]
+    camera.aspect_ratio = (
+        glfw.get_framebuffer_size(window)[0] / glfw.get_framebuffer_size(window)[1]
+    )
     camera.update_view_matrix()
     camera.update_projection_matrix()
     # Update the rotation angle
@@ -531,7 +379,9 @@ while not glfw.window_should_close(window):
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
 
     # Update the camera's aspect ratio and recalculate matrices
-    camera.aspect_ratio = glfw.get_framebuffer_size(window)[0] / glfw.get_framebuffer_size(window)[1]
+    camera.aspect_ratio = (
+        glfw.get_framebuffer_size(window)[0] / glfw.get_framebuffer_size(window)[1]
+    )
     camera.update_view_matrix()
     camera.update_projection_matrix()
     # Pass the matrices to the shader
@@ -560,7 +410,10 @@ while not glfw.window_should_close(window):
     # Draw the points
     # Draw the points
     glBindVertexArray(VAO)
+    glDepthMask(GL_FALSE)  # Disable depth writing
     glDrawArrays(GL_POINTS, 0, len(vertices))
+    glDepthMask(GL_TRUE)  # Re-enable depth writing
+
     check_gl_error()  # Check for errors after drawing
     glBindVertexArray(0)
     # Swap the screen buffers

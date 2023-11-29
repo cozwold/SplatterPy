@@ -5,11 +5,15 @@ def generate_points_from_model(sampled_points, num_points, noise_level, randomiz
     # Assume sampled_points is an array of [x, y, z] coordinates
     points = np.zeros((num_points, 7), dtype=np.float32)
     if num_points > len(sampled_points):
-        raise ValueError("Number of points requested exceeds the number of sampled points")
+        raise ValueError(
+            "Number of points requested exceeds the number of sampled points"
+        )
 
     # Use the sampled points for position, apply noise only to z
     points[:, :2] = sampled_points[:num_points, :2]
-    points[:, 2] = sampled_points[:num_points, 2] + randomizer.uniform(-noise_level, noise_level, num_points)
+    points[:, 2] = sampled_points[:num_points, 2] + randomizer.uniform(
+        -noise_level, noise_level, num_points
+    )
 
     # Random color and size
     points[:, 3:6] = randomizer.rand(num_points, 3)  # color (RGB)
@@ -28,15 +32,20 @@ class Randomizer:
     def seed(self, seed_value):
         np.random.seed(seed_value)
 
+
 def generate_points(num_points, noise_level, window_size, randomizer):
     # Assume sampled_points is an array of [x, y, z] coordinates
     points = np.zeros((num_points, 7), dtype=np.float32)
     if num_points > len(sampled_points):
-        raise ValueError("Number of points requested exceeds the number of sampled points")
+        raise ValueError(
+            "Number of points requested exceeds the number of sampled points"
+        )
 
     # Use the sampled points for position, apply noise only to z
     points[:, :2] = sampled_points[:num_points, :2]
-    points[:, 2] = sampled_points[:num_points, 2] + randomizer.uniform(-noise_level, noise_level, num_points)
+    points[:, 2] = sampled_points[:num_points, 2] + randomizer.uniform(
+        -noise_level, noise_level, num_points
+    )
 
     # Random color and size
     points[:, 3:6] = randomizer.rand(num_points, 3)  # color (RGB)
