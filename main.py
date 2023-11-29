@@ -8,87 +8,12 @@ from data_gen import generate_points, generate_points_from_model
 from procedural_data_gen import generate_voxel_terrain, Randomizer
 import trimesh
 from utils import rotate_y, check_gl_error, normalize
+from shaders import VERTEX_SHADER_SOURCE, GEOMETRY_SHADER_SOURCE, FRAGMENT_SHADER_SOURCE
+
 # Initialize mouse state variables
 lastX, lastY = 1920 / 2, 1080 / 2  # Assuming a 1920x1080 window size
 first_mouse = True  # This will help to check if the mouse has moved for the first time
 yaw, pitch = -90.0, 0.0  # Initialize yaw and pitch
-
-# Vertex Shader: Processes each vertex's position, color, and size; outputs to the geometry shader.
-vertex_shader_source = """
-#version 330 core
-layout (location = 0) in vec3 aPos;
-layout (location = 1) in vec3 aColor;
-layout (location = 2) in float aSize;
-uniform mat4 model;
-uniform mat4 view;
-uniform mat4 projection;
-out vec3 vertexColor;
-out float vertexSize;
-
-void main()
-{
-    // Main function for vertex shader that transforms vertices and passes color and size to geometry shader.
-    gl_Position = projection * view * model * vec4(aPos, 1.0);
-    vertexColor = aColor;
-    vertexSize = aSize;
-}
-"""
-
-# Geometry Shader: Receives vertices from the vertex shader; emits vertices forming a triangle strip.
-geometry_shader_source = """
-#version 330 core
-layout (points) in;
-layout (triangle_strip, max_vertices = 4) out;
-in vec3 vertexColor[];  // Receive color from vertex shader
-in float vertexSize[];  // Receive size from vertex shader
-out vec3 geoColor;  // Pass color to fragment shader
-out vec2 TexCoords;
-
-void main() {
-    geoColor = vertexColor[0];  // Pass along color to fragment shader
-    vec4 position = gl_in[0].gl_Position;
-    float size = vertexSize[0];
-
-    gl_Position = position + vec4(-size, -size, 0, 0);
-    TexCoords = vec2(0, 0);
-    EmitVertex();
-
-    gl_Position = position + vec4(size, -size, 0, 0);
-    TexCoords = vec2(1, 0);
-    EmitVertex();
-
-    gl_Position = position + vec4(-size, size, 0, 0);
-    TexCoords = vec2(0, 1);
-    EmitVertex();
-
-    gl_Position = position + vec4(size, size, 0, 0);
-    TexCoords = vec2(1, 1);
-    EmitVertex();
-}
-"""
-
-
-# Fragment Shader: Calculates the color of each pixel by applying a Gaussian function for soft-edge rendering.
-fragment_shader_source = """
-#version 330 core
-out vec4 FragColor;
-in vec3 geoColor;  
-in vec2 TexCoords;
-
-uniform float amplitude;  // Declare the amplitude uniform variable
-
-void main()
-{
-    vec2 coord = TexCoords - vec2(0.5, 0.5);  // Adjust TexCoords
-    float dist_sq = dot(coord, coord);  // Distance squared from center
-    vec3 center = geoColor;  // Use the color of the point as the center color
-    float gaussian = amplitude * exp(-dist_sq / (2.0 * 0.2 * 0.2));  // Simplified Gaussian equation
-    float alpha = clamp(gaussian, 0.0, 1.0);  // Clamp Gaussian to [0, 1] for alpha
-    FragColor = vec4(geoColor * gaussian, alpha);  // Apply Gaussian to color
-}
-
-"""
-
 
 
 
@@ -210,9 +135,9 @@ glDepthFunc(GL_LESS)  # Accept fragment if it's closer to the camera than the fo
 
 # Disable Depth Testing (if necessary)
 #glDisable(GL_DEPTH_TEST)
-# Create the vertex shader
+# Create and compile vertex shader
 vertex_shader = glCreateShader(GL_VERTEX_SHADER)
-glShaderSource(vertex_shader, vertex_shader_source)
+glShaderSource(vertex_shader, VERTEX_SHADER_SOURCE)
 glCompileShader(vertex_shader)
 
 # Check for shader compile errors
@@ -221,9 +146,9 @@ if not success:
     info_log = glGetShaderInfoLog(vertex_shader)
     raise RuntimeError(f"ERROR::SHADER::VERTEX::COMPILATION_FAILED\n{info_log}")
 
-# Create shaders
+# Create and compile geometry shader
 geometry_shader = glCreateShader(GL_GEOMETRY_SHADER)
-glShaderSource(geometry_shader, geometry_shader_source)
+glShaderSource(geometry_shader, GEOMETRY_SHADER_SOURCE)
 glCompileShader(geometry_shader)
 # Check for shader compile errors
 success = glGetShaderiv(geometry_shader, GL_COMPILE_STATUS)
@@ -238,8 +163,9 @@ if not success:
     info_log = glGetShaderInfoLog(vertex_shader)
     raise RuntimeError(f"ERROR::SHADER::VERTEX::COMPILATION_FAILED\n{info_log}")
 
+# Create and compile fragment shader
 fragment_shader = glCreateShader(GL_FRAGMENT_SHADER)
-glShaderSource(fragment_shader, fragment_shader_source)
+glShaderSource(fragment_shader, FRAGMENT_SHADER_SOURCE)
 glCompileShader(fragment_shader)
 
 # Check for shader compile errors
